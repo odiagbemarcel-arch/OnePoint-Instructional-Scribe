@@ -1,0 +1,351 @@
+// Scribe AI — Prisma Database Schema
+// Run: npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AUTH & USERS ────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  clerkId       String   @unique
+  email         String   @unique
+  name          String?
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships   Membership[]
+  guides        Guide[]
+  recordings    Recording[]
+  comments      Comment[]
+  versions      GuideVersion[]
+  analyticsEvents AnalyticsEvent[]
+  auditLogs     AuditLog[]
+}
+
+// ─── ORGANIZATIONS ───────────────────────────────────────────────────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  plan        Plan     @default(FREE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships Membership[]
+  guides      Guide[]
+  folders     Folder[]
+  recordings  Recording[]
+  shares      Share[]
+  auditLogs   AuditLog[]
+}
+
+enum Plan {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role     @default(VIEWER)
+  invitedAt      DateTime @default(now())
+  joinedAt       DateTime?
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// ─── FOLDERS ─────────────────────────────────────────────────────────────────
+
+model Folder {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  color          String?  // hex color for UI
+  organizationId String
+  parentId       String?  // nested folders
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         Folder?      @relation("FolderTree", fields: [parentId], references: [id])
+  children       Folder[]     @relation("FolderTree")
+  guides         Guide[]
+}
+
+// ─── GUIDES ──────────────────────────────────────────────────────────────────
+
+model Guide {
+  id             String      @id @default(cuid())
+  title          String
+  summary        String?
+  status         GuideStatus @default(DRAFT)
+  visibility     Visibility  @default(PRIVATE)
+  organizationId String
+  authorId       String
+  folderId       String?
+  recordingId    String?     @unique // source recording
+  tone           Tone        @default(INTERNAL_OPS)
+  tags           String[]
+  viewCount      Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  publishedAt    DateTime?
+  archivedAt     DateTime?
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author         User          @relation(fields: [authorId], references: [id])
+  folder         Folder?       @relation(fields: [folderId], references: [id])
+  recording      Recording?    @relation(fields: [recordingId], references: [id])
+  steps          GuideStep[]
+  versions       GuideVersion[]
+  shares         Share[]
+  comments       Comment[]
+  analyticsEvents AnalyticsEvent[]
+}
+
+enum GuideStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum Visibility {
+  PRIVATE
+  ORGANIZATION
+  PUBLIC
+}
+
+enum Tone {
+  INTERNAL_OPS
+  CUSTOMER_FACING
+  TRAINING
+  TECHNICAL_RUNBOOK
+}
+
+// ─── GUIDE STEPS ─────────────────────────────────────────────────────────────
+
+model GuideStep {
+  id              String   @id @default(cuid())
+  guideId         String
+  order           Int
+  title           String
+  instruction     String   // AI-generated markdown
+  screenshotUrl   String?  // S3 or Cloudinary URL
+  screenshotKey   String?  // storage key for deletion
+  redactedRegions Json?    // [{x,y,w,h}] array of blur regions
+  sectionLabel    String?  // for grouped sections
+  eventType       String?  // click | navigate | input | scroll
+  elementLabel    String?  // accessible label of target element
+  url             String?  // page URL at time of step
+  tip             String?  // AI-generated pro tip
+  isRedacted      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  guide           Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@index([guideId, order])
+}
+
+// ─── VERSIONS ────────────────────────────────────────────────────────────────
+
+model GuideVersion {
+  id        String   @id @default(cuid())
+  guideId   String
+  authorId  String
+  snapshot  Json     // full guide + steps JSON snapshot
+  message   String?  // optional commit message
+  createdAt DateTime @default(now())
+
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+// ─── RECORDINGS ──────────────────────────────────────────────────────────────
+
+model Recording {
+  id             String          @id @default(cuid())
+  organizationId String
+  authorId       String
+  status         RecordingStatus @default(RECORDING)
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+  durationMs     Int?
+  eventCount     Int             @default(0)
+  userAgent      String?
+  metadata       Json?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author         User            @relation(fields: [authorId], references: [id])
+  events         RecordingEvent[]
+  guide          Guide?          // 1:1 after AI processing
+}
+
+enum RecordingStatus {
+  RECORDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model RecordingEvent {
+  id           String    @id @default(cuid())
+  recordingId  String
+  sequence     Int       // order within recording
+  type         EventType
+  timestamp    DateTime
+  url          String?
+  pageTitle    String?
+  elementTag   String?   // div, button, a, input, etc.
+  elementLabel String?   // aria-label, placeholder, text content
+  elementRole  String?   // ARIA role
+  selector     String?   // CSS selector (best-effort)
+  screenshotUrl String?  // per-step screenshot
+  screenshotKey String?
+  inputLabel   String?   // label for input fields
+  // value is intentionally NEVER stored for security
+  scrollX      Int?
+  scrollY      Int?
+  viewportW    Int?
+  viewportH    Int?
+  clickX       Int?      // click coordinates
+  clickY       Int?
+  isSensitive  Boolean   @default(false)
+  metadata     Json?
+
+  recording    Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@index([recordingId, sequence])
+}
+
+enum EventType {
+  PAGE_VISIT
+  CLICK
+  INPUT
+  SELECT
+  SCROLL
+  HOVER
+  KEYBOARD
+  FORM_SUBMIT
+  FILE_UPLOAD
+  MODAL_OPEN
+  MODAL_CLOSE
+  TAB_SWITCH
+}
+
+// ─── SHARES ──────────────────────────────────────────────────────────────────
+
+model Share {
+  id             String      @id @default(cuid())
+  guideId        String
+  organizationId String
+  token          String      @unique @default(cuid())
+  type           ShareType   @default(PUBLIC_LINK)
+  isActive       Boolean     @default(true)
+  password       String?     // optional password protection
+  expiresAt      DateTime?
+  viewCount      Int         @default(0)
+  createdAt      DateTime    @default(now())
+
+  guide          Guide        @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum ShareType {
+  PUBLIC_LINK
+  PRIVATE_LINK
+  EMBED
+  PDF_EXPORT
+}
+
+// ─── COMMENTS ────────────────────────────────────────────────────────────────
+
+model Comment {
+  id        String   @id @default(cuid())
+  guideId   String
+  authorId  String
+  body      String
+  stepId    String?  // optional step-level comment
+  parentId  String?  // reply threading
+  isResolved Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+  parent    Comment? @relation("CommentThread", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentThread")
+}
+
+// ─── ANALYTICS ───────────────────────────────────────────────────────────────
+
+model AnalyticsEvent {
+  id        String    @id @default(cuid())
+  guideId   String
+  userId    String?   // null for anonymous
+  type      AnalyticsType
+  stepIndex Int?      // for step-level events
+  shareToken String?
+  ip        String?
+  userAgent String?
+  referer   String?
+  country   String?
+  createdAt DateTime  @default(now())
+
+  guide     Guide     @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@index([guideId, createdAt])
+}
+
+enum AnalyticsType {
+  VIEW
+  STEP_VIEW
+  SHARE_CLICK
+  PDF_EXPORT
+  EMBED_VIEW
+  COMMENT_ADD
+  COMPLETE
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  action         String   // e.g. "guide.publish", "member.invite"
+  resourceType   String
+  resourceId     String
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
