@@ -1,0 +1,111 @@
+name: Setup Vercel Env Vars
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Vercel token
+        run: |
+          echo "Checking token validity..."
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v2/user")
+          if [ $? -ne 0 ]; then
+            echo "ERROR: VERCEL_TOKEN is invalid or expired. Go to vercel.com/account/tokens and create a new token, then update the VERCEL_TOKEN secret in GitHub."
+            exit 1
+          fi
+          echo "Token valid. User: $(echo $RESPONSE | jq -r '.user.email // .user.username')"
+
+      - name: Get Vercel project info
+        id: project
+        run: |
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v9/projects/one-point-instructional-scribe")
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Project 'one-point-instructional-scribe' not found in Vercel."
+            echo "Make sure the project exists and your token has access to it."
+            exit 1
+          fi
+          PROJECT_ID=$(echo $RESPONSE | jq -r '.id')
+          echo "Project ID: $PROJECT_ID"
+          echo "id=$PROJECT_ID" >> $GITHUB_OUTPUT
+
+      - name: Set env vars in Vercel
+        run: |
+          set -e
+          PROJECT_ID="${{ steps.project.outputs.id }}"
+
+          upsert_env() {
+            local key=$1
+            local value=$2
+            local targets='["production","preview","development"]'
+
+            # Check if it already exists
+            EXISTING=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+              "https://api.vercel.com/v9/projects/$PROJECT_ID/env" \
+              | jq -r --arg k "$key" '.envs[] | select(.key == $k) | .id' 2>/dev/null || echo "")
+
+            if [ -n "$EXISTING" ]; then
+              echo "Updating $key (id: $EXISTING)..."
+              RESULT=$(curl -sf -X PATCH \
+                -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                "https://api.vercel.com/v9/projects/$PROJECT_ID/env/$EXISTING" \
+                -d "{\"value\":\"$value\",\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}")
+              echo "$key: updated"
+            else
+              echo "Creating $key..."
+              RESULT=$(curl -sf -X POST \
+                -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                "https://api.vercel.com/v10/projects/$PROJECT_ID/env" \
+                -d "{\"key\":\"$key\",\"value\":\"$value\",\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}")
+              echo "$key: created"
+            fi
+          }
+
+          upsert_env "DATABASE_URL"             "${{ secrets.DATABASE_URL }}"
+          upsert_env "DIRECT_URL"               "${{ secrets.DIRECT_URL }}"
+          upsert_env "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" "${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}"
+          upsert_env "CLERK_SECRET_KEY"         "${{ secrets.CLERK_SECRET_KEY }}"
+          upsert_env "NEXT_PUBLIC_CLERK_SIGN_IN_URL"     "/sign-in"
+          upsert_env "NEXT_PUBLIC_CLERK_SIGN_UP_URL"     "/sign-up"
+          upsert_env "NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL" "/dashboard"
+          upsert_env "NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL" "/dashboard"
+          upsert_env "NEXT_PUBLIC_APP_URL"      "https://one-point-instructional-scribe.vercel.app"
+
+          echo "All env vars set successfully!"
+
+      - name: List configured env vars (keys only)
+        run: |
+          PROJECT_ID="${{ steps.project.outputs.id }}"
+          echo "Env vars now set on project:"
+          curl -sf \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v9/projects/$PROJECT_ID/env" \
+            | jq -r '.envs[] | "  " + .key + " (" + (.target | join(", ")) + ")"'
+
+      - name: Trigger production redeploy
+        run: |
+          PROJECT_ID="${{ steps.project.outputs.id }}"
+          DEPLOY=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&limit=1&target=production" \
+            | jq -r '.deployments[0].uid')
+          echo "Latest deployment: $DEPLOY"
+
+          if [ -n "$DEPLOY" ] && [ "$DEPLOY" != "null" ]; then
+            REDEPLOY=$(curl -sf -X POST \
+              -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              "https://api.vercel.com/v13/deployments" \
+              -d "{\"deploymentId\":\"$DEPLOY\"}" | jq -r '.url')
+            echo "Redeploy triggered: https://$REDEPLOY"
+          else
+            echo "No existing deployment found to redeploy."
+          fi

@@ -15,10 +15,11 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.108",
     "@clerk/nextjs": "^5.0.0",
     "@prisma/client": "^5.14.0",
+    "ai": "^6.0.173",
     "next": "14.2.5",
-    "openai": "^4.52.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
