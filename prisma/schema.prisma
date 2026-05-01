@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── AUTH & USERS ────────────────────────────────────────────────────────────
@@ -83,9 +84,9 @@ model Folder {
   id             String   @id @default(cuid())
   name           String
   description    String?
-  color          String?  // hex color for UI
+  color          String?
   organizationId String
-  parentId       String?  // nested folders
+  parentId       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -106,7 +107,7 @@ model Guide {
   organizationId String
   authorId       String
   folderId       String?
-  recordingId    String?     @unique // source recording
+  recordingId    String?     @unique
   tone           Tone        @default(INTERNAL_OPS)
   tags           String[]
   viewCount      Int         @default(0)
@@ -152,15 +153,15 @@ model GuideStep {
   guideId         String
   order           Int
   title           String
-  instruction     String   // AI-generated markdown
-  screenshotUrl   String?  // S3 or Cloudinary URL
-  screenshotKey   String?  // storage key for deletion
-  redactedRegions Json?    // [{x,y,w,h}] array of blur regions
-  sectionLabel    String?  // for grouped sections
-  eventType       String?  // click | navigate | input | scroll
-  elementLabel    String?  // accessible label of target element
-  url             String?  // page URL at time of step
-  tip             String?  // AI-generated pro tip
+  instruction     String
+  screenshotUrl   String?
+  screenshotKey   String?
+  redactedRegions Json?
+  sectionLabel    String?
+  eventType       String?
+  elementLabel    String?
+  url             String?
+  tip             String?
   isRedacted      Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -176,8 +177,8 @@ model GuideVersion {
   id        String   @id @default(cuid())
   guideId   String
   authorId  String
-  snapshot  Json     // full guide + steps JSON snapshot
-  message   String?  // optional commit message
+  snapshot  Json
+  message   String?
   createdAt DateTime @default(now())
 
   guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
@@ -201,7 +202,7 @@ model Recording {
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   author         User            @relation(fields: [authorId], references: [id])
   events         RecordingEvent[]
-  guide          Guide?          // 1:1 after AI processing
+  guide          Guide?
 }
 
 enum RecordingStatus {
@@ -214,24 +215,23 @@ enum RecordingStatus {
 model RecordingEvent {
   id           String    @id @default(cuid())
   recordingId  String
-  sequence     Int       // order within recording
+  sequence     Int
   type         EventType
   timestamp    DateTime
   url          String?
   pageTitle    String?
-  elementTag   String?   // div, button, a, input, etc.
-  elementLabel String?   // aria-label, placeholder, text content
-  elementRole  String?   // ARIA role
-  selector     String?   // CSS selector (best-effort)
-  screenshotUrl String?  // per-step screenshot
+  elementTag   String?
+  elementLabel String?
+  elementRole  String?
+  selector     String?
+  screenshotUrl String?
   screenshotKey String?
-  inputLabel   String?   // label for input fields
-  // value is intentionally NEVER stored for security
+  inputLabel   String?
   scrollX      Int?
   scrollY      Int?
   viewportW    Int?
   viewportH    Int?
-  clickX       Int?      // click coordinates
+  clickX       Int?
   clickY       Int?
   isSensitive  Boolean   @default(false)
   metadata     Json?
@@ -265,7 +265,7 @@ model Share {
   token          String      @unique @default(cuid())
   type           ShareType   @default(PUBLIC_LINK)
   isActive       Boolean     @default(true)
-  password       String?     // optional password protection
+  password       String?
   expiresAt      DateTime?
   viewCount      Int         @default(0)
   createdAt      DateTime    @default(now())
@@ -288,8 +288,8 @@ model Comment {
   guideId   String
   authorId  String
   body      String
-  stepId    String?  // optional step-level comment
-  parentId  String?  // reply threading
+  stepId    String?
+  parentId  String?
   isResolved Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -305,9 +305,9 @@ model Comment {
 model AnalyticsEvent {
   id        String    @id @default(cuid())
   guideId   String
-  userId    String?   // null for anonymous
+  userId    String?
   type      AnalyticsType
-  stepIndex Int?      // for step-level events
+  stepIndex Int?
   shareToken String?
   ip        String?
   userAgent String?
@@ -337,7 +337,7 @@ model AuditLog {
   id             String   @id @default(cuid())
   organizationId String
   userId         String
-  action         String   // e.g. "guide.publish", "member.invite"
+  action         String
   resourceType   String
   resourceId     String
   metadata       Json?
