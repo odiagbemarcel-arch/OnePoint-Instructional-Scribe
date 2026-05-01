@@ -1,0 +1,55 @@
+name: Diagnose Vercel Deployment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check token validity
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/user.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v2/user")
+          echo "Token check HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Token valid. User: $(jq -r '.user.email // .user.username' /tmp/user.json)"
+          else
+            echo "Token INVALID (HTTP $HTTP_CODE). Response:"
+            cat /tmp/user.json
+          fi
+
+      - name: Check project exists
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/project.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v9/projects/one-point-instructional-scribe")
+          echo "Project check HTTP status: $HTTP_CODE"
+          cat /tmp/project.json | jq '{id: .id, name: .name, error: .error}' 2>/dev/null || cat /tmp/project.json
+
+      - name: List current env vars
+        run: |
+          PROJECT_ID=$(cat /tmp/project.json | jq -r '.id')
+          if [ "$PROJECT_ID" = "null" ] || [ -z "$PROJECT_ID" ]; then
+            echo "Cannot list env vars — project not found"
+            exit 0
+          fi
+          echo "Env vars on project $PROJECT_ID:"
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v9/projects/$PROJECT_ID/env" \
+            | jq -r '.envs[]? | "  " + .key + " [" + (.target | join(",")) + "]"'
+
+      - name: Check latest deployment status
+        run: |
+          PROJECT_ID=$(cat /tmp/project.json | jq -r '.id')
+          if [ "$PROJECT_ID" = "null" ] || [ -z "$PROJECT_ID" ]; then
+            echo "Cannot check deployments — project not found"
+            exit 0
+          fi
+          echo "Latest deployments:"
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&limit=3" \
+            | jq -r '.deployments[]? | "  " + .uid + " | " + .state + " | " + .url'
