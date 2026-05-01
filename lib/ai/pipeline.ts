@@ -1,8 +1,9 @@
-import { generateText, generateObject } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+import { generateText } from "ai";
 
-// Vercel AI Gateway — no API key needed, billed through Vercel account
-// Uses google/gemini-2.0-flash by default (free tier via gateway)
-const MODEL = "google/gemini-2.0-flash";
+// Vercel AI Gateway — routes to google/gemini-2.0-flash (free tier)
+// Enable at: vercel.com → your project → Integrations → AI Gateway
+const MODEL = gateway("google/gemini-2.0-flash");
 
 export async function generateGuide(events: unknown[]) {
   const { text } = await generateText({
@@ -25,7 +26,7 @@ export async function rewriteTone(content: string, tone: string) {
 export async function detectSensitive(steps: unknown[]) {
   const { text } = await generateText({
     model: MODEL,
-    system: "Identify any steps that may contain sensitive information (passwords, PII, credentials). Return JSON array of step indices.",
+    system: "Identify any steps that may contain sensitive information (passwords, PII, credentials). Return a JSON array of step indices.",
     prompt: JSON.stringify(steps),
   });
   return JSON.parse(text);
