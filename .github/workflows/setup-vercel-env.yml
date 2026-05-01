@@ -1,0 +1,56 @@
+name: Setup Vercel Env Vars
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Vercel project ID
+        id: project
+        run: |
+          PROJECT=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v9/projects/one-point-instructional-scribe" \
+            | jq -r '.id')
+          echo "id=$PROJECT" >> $GITHUB_OUTPUT
+
+      - name: Set env vars in Vercel
+        run: |
+          set_env() {
+            local key=$1
+            local value=$2
+            for target in production preview development; do
+              curl -s -X POST \
+                -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                "https://api.vercel.com/v10/projects/${{ steps.project.outputs.id }}/env" \
+                -d "{\"key\":\"$key\",\"value\":\"$value\",\"type\":\"encrypted\",\"target\":[\"$target\"]}" \
+                | jq -r '"'$key' ['$target']: " + (if .error then .error.message else "ok" end)'
+            done
+          }
+
+          set_env "DATABASE_URL" "${{ secrets.DATABASE_URL }}"
+          set_env "DIRECT_URL" "${{ secrets.DIRECT_URL }}"
+          set_env "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" "${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}"
+          set_env "CLERK_SECRET_KEY" "${{ secrets.CLERK_SECRET_KEY }}"
+          set_env "NEXT_PUBLIC_CLERK_SIGN_IN_URL" "/sign-in"
+          set_env "NEXT_PUBLIC_CLERK_SIGN_UP_URL" "/sign-up"
+          set_env "NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL" "/dashboard"
+          set_env "NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL" "/dashboard"
+          set_env "NEXT_PUBLIC_APP_URL" "https://one-point-instructional-scribe.vercel.app"
+
+      - name: Trigger Vercel redeploy
+        run: |
+          DEPLOY_ID=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v6/deployments?projectId=${{ steps.project.outputs.id }}&limit=1&target=production" \
+            | jq -r '.deployments[0].uid')
+
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://api.vercel.com/v13/deployments" \
+            -d "{\"deploymentId\":\"$DEPLOY_ID\"}" \
+            | jq -r '"Redeploy triggered: " + .url'
