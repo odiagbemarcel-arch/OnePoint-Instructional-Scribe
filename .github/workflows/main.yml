@@ -1,0 +1,14 @@
+            - name: Install Claude Code
+  # You may pin to the exact commit or the version.
+  # uses: pleaseai/setup-claude-code@4c768e1c565e705cbef0b52fc5ef13f547ab70bb
+  uses: pleaseai/setup-claude-code@v1.0.0
+  with:
+    # Claude Code version to install. Options: "stable" (recommended), "latest", or specific version number (e.g., "2.0.25")
+    version: # optional, default is latest
+    # GitHub token for accessing plugin repositories. Used to configure git credentials and convert SSH URLs to HTTPS. The token is configured with the local git config. For private repositories, ensure the token has appropriate access. Learn more about creating and using encrypted secrets: https://docs.github.com/en/actions/security-guides/encrypted-secrets
+    github_token: # optional, default is ${{ github.token }}
+    # Plugin marketplace sources to add. Supports: GitHub (owner/repo), Git URL, local path, or remote URL. Can be comma-separated or newline-separated for multiple marketplaces. Required if installing plugins.
+    marketplaces: # optional
+    # List of plugins to install. Can be comma-separated or newline-separated (e.g., "dev-tools@passionfactory,pr-review-toolkit@passionfactory" or one per line). Requires marketplaces to be added first.
+    plugins: # optional
+          
